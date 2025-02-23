@@ -1,1 +1,178 @@
+# Use the latest Alpine Linux image
+FROM alpine:latest
+#LABEL maintainer="your-email@example.com"
+
+# Create directories for configuration and service configs for later
+# Docker variable later for custom Unbound and Cloudflared configs at /config,
+# /build holds default Pi-hole docs configs.
+RUN mkdir -p /config && \
+    mkdir -p /build && \
+    mkdir -p /etc/cloudflared && \
+    mkdir -p /etc/unbound && \
+    mkdir -p /etc/unbound/unbound.conf.d && \
+    mkdir -p /var/lib/unbound
+
+# Update system and install required dependencies
+# (Based on the IPv6.rs tutorial plus additional packages needed for Pi-hole)
+# https://ipv6.rs/tutorial/Alpine_Linux_Latest/Pi-hole/
+RUN apk update && apk upgrade && \
+    apk add --no-cache \
+        bash \
+        curl \
+        wget \
+        git \
+        php7 \
+        php7-fpm \
+        php7-curl \
+        php7-json \
+        php7-openssl \
+        php7-mbstring \
+        php7-gd \
+        php7-zip \
+        php7-phar \
+        php7-simplexml \
+        lighttpd \
+        unbound \
+        tzdata \
+        sudo
+
+# Set default timezone (adjust as needed) Docker variable later
+ENV TZ=UTC
+
+# Install Cloudflared (for DNS-over-HTTPS / DOH)
+# Alpine install: https://gist.github.com/sarkrui/a2998f3a6256a43a5a41dbf5edf5947f
+# See: https://docs.pi-hole.net/guides/dns/cloudflared/
+RUN wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+    -O /usr/local/bin/cloudflared && \
+    chmod +x /usr/local/bin/cloudflared
+
+# Install the Pi-hole v6 instance non-interactively.
+# Note: The official installer is built for Debian; running on Alpine is experimental.
+RUN curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended
+
+# Build default config files into /build directory
+# Default Cloudflared config per Pi-hole documentation
+RUN cat << 'EOF' > /build/cloudflared.conf
+# Commandline args for cloudflared, using Cloudflare DNS
+CLOUDFLARED_OPTS="--port 5153 --upstream https://1.1.1.1/dns-query --upstream https://1.0.0.1/dns-query --address 127.1.1.1"
+EOF
+
+# Default Unbound config for Pi-hole, per Pi-hole docs.
+# Renamed to unbound-pi-hole.conf for clarity.
+RUN cat << 'EOF' > /build/unbound-pi-hole.conf
+server:
+    # If no logfile is specified, syslog is used
+    # logfile: "/var/log/unbound/unbound.log"
+    verbosity: 0
+
+    interface: 127.2.2.2
+    port: 5253
+    do-ip4: yes
+    do-udp: yes
+    do-tcp: yes
+
+    # May be set to no if you don't have IPv6 connectivity
+    do-ip6: yes
+
+    # You want to leave this to no unless you have *native* IPv6. With 6to4 and
+    # Terredo tunnels your web browser should favor IPv4 for the same reasons
+    prefer-ip6: no
+
+    # Use this only when you downloaded the list of primary root servers!
+    # If you use the default dns-root-data package, unbound will find it automatically
+    root-hints: "/var/lib/unbound/root.hints"
+
+    # Trust glue only if it is within the server's authority
+    harden-glue: yes
+
+    # Require DNSSEC data for trust-anchored zones, if such data is absent, the zone becomes BOGUS
+    harden-dnssec-stripped: yes
+
+    # Don't use Capitalization randomization as it known to cause DNSSEC issues sometimes
+    # see https://discourse.pi-hole.net/t/unbound-stubby-or-dnscrypt-proxy/9378 for further details
+    use-caps-for-id: no
+
+    # Reduce EDNS reassembly buffer size.
+    edns-buffer-size: 1232
+
+    # Perform prefetching of close to expired message cache entries
+    prefetch: yes
+
+    # One thread should be sufficient, can be increased on beefy machines.
+    num-threads: 1
+
+    # Ensure kernel buffer is large enough to not lose messages in traffic spikes
+    so-rcvbuf: 1m
+
+    # Ensure privacy of local IP ranges
+    private-address: 192.168.0.0/16
+    private-address: 169.254.0.0/16
+    private-address: 172.16.0.0/12
+    private-address: 10.0.0.0/8
+    private-address: fd00::/8
+    private-address: fe80::/10
+EOF
+
+# Create the entrypoint script inside the Dockerfile (new addition)
+# This script checks for custom configs in /config and creates symlinks,
+# and downloads Unbound root hints if needed.
+RUN cat << 'EOF' > /entrypoint.sh
+#!/bin/sh
+set -e
+
+# Check for custom Cloudflared config in /config; if not present, copy default from /build
+if [ ! -f /config/cloudflared.conf ]; then
+  echo "Custom Cloudflared config not found in /config, copying default."
+  cp /build/cloudflared.conf /config/cloudflared.conf
+fi
+
+# Check for custom Unbound config in /config; if not present, copy default from /build.
+# Note: The file is now called unbound-pi-hole.conf for clarity.
+if [ ! -f /config/unbound-pi-hole.conf ]; then
+  echo "Custom Unbound config not found in /config, copying default."
+  cp /build/unbound-pi-hole.conf /config/unbound-pi-hole.conf
+fi
+
+# Create symlink for Cloudflared config
+if [ ! -L /etc/cloudflared/config.yml ]; then
+  rm -f /etc/cloudflared/config.yml
+  ln -s /config/cloudflared.conf /etc/cloudflared/config.yml
+fi
+
+# Create symlink for Unbound config per Pi-hole documentation, renamed for clarity.
+if [ ! -L /etc/unbound/unbound.conf.d/unbound-pi-hole.conf ]; then
+  rm -f /etc/unbound/unbound.conf.d/unbound-pi-hole.conf
+  ln -s /config/unbound-pi-hole.conf /etc/unbound/unbound.conf.d/unbound-pi-hole.conf
+fi
+
+# Download Unbound root hints if not present (after unbound pi-hole root hints)
+if [ ! -f /var/lib/unbound/root.hints ]; then
+  echo "Downloading Unbound root hints..."
+  wget https://www.internic.net/domain/named.root -qO- > /var/lib/unbound/root.hints
+fi
+
+# Start required services
+echo "Starting services..."
+lighttpd -D &
+php-fpm7 &
+unbound -d &
+
+# Source the Cloudflared config to load CLOUDFLARED_OPTS variable
+. /config/cloudflared.conf
+cloudflared \$CLOUDFLARED_OPTS &
+
+# Start Pi-hole FTL in the foreground to keep the container running
+pihole-FTL -f
+EOF
+
+# Make entrypoint script executable
+RUN chmod +x /entrypoint.sh
+
+# Expose required ports:
+#   80/tcp & 443/tcp for the Pi-hole web interface
+#   53/tcp & 53/udp for DNS queries
+EXPOSE 80 443 53/tcp 53/udp
+
+# Set the entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]
 
