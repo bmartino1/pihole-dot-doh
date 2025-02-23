@@ -78,20 +78,23 @@ RUN apk update && apk upgrade && \
 # Set default timezone (can be overridden via Docker variable)
 ENV TZ=UTC
 
-# Install the Pi-hole v6 instance non-interactively.
-RUN curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended
+# -- Remove or comment out the direct Pi-hole install line --
+# RUN curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended
 
-# Copy Unbound binaries and configs from the builder stage.
+# Copy Unbound binaries and configs from the builder stage (Unbound build).
 COPY --from=unbound /usr/local/sbin/unbound* /usr/local/sbin/
 COPY --from=unbound /usr/local/lib/libunbound* /usr/local/lib/
 COPY --from=unbound /usr/local/etc/unbound/* /usr/local/etc/unbound/
 
-# Copy your scripts from the build context "scripts" folder to /temp.
-# (Ensure your repository has a "scripts" folder with install.sh, pihole-run.sh, unbound.sh, etc.)
+# Copy all scripts (including alpine_patch_pihole_installer.sh) into /temp.
 COPY scripts/ /temp
 
 # Create the unbound user and group (if not already created by the installer)
 RUN addgroup -S unbound || true && adduser -S -G unbound unbound || true
+
+# Run our Alpine patch script, which downloads, patches, and runs Pi-hole's installer.
+RUN chmod +x /temp/alpine_patch_pihole_installer.sh && \
+    /temp/alpine_patch_pihole_installer.sh
 
 # Copy install.sh from /temp into /etc/cont-init.d for runtime execution.
 RUN cp /temp/install.sh /etc/cont-init.d/10-install.sh && chmod +x /etc/cont-init.d/10-install.sh
