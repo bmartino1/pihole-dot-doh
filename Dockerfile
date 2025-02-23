@@ -54,16 +54,16 @@ RUN apk update && apk upgrade && \
       curl \
       wget \
       git \
-      php7 \
-      php7-fpm \
-      php7-curl \
-      php7-json \
-      php7-openssl \
-      php7-mbstring \
-      php7-gd \
-      php7-zip \
-      php7-phar \
-      php7-simplexml \
+      php8 \
+      php8-fpm \
+      php8-curl \
+      php8-json \
+      php8-openssl \
+      php8-mbstring \
+      php8-gd \
+      php8-zip \
+      php8-phar \
+      php8-simplexml \
       lighttpd \
       tzdata \
       sudo \
