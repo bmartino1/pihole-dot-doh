@@ -13,8 +13,9 @@ curl -sSL "$INSTALLER_URL" -o "$INSTALLER"
 sed -i '/command -v systemctl/d' "$INSTALLER"
 # Remove lines mentioning SELinux not detected.
 sed -i '/SELinux not detected/d' "$INSTALLER"
-# Instead of deleting exit commands, comment them out to preserve block structure.
-sed -i 's/^exit 1$/#exit 1/g' "$INSTALLER"
+# Instead of deleting exit commands (which can break block structure),
+# comment out any line that starts with "exit 1" (allowing for leading whitespace).
+sed -i 's/^[[:space:]]*exit 1\b/#&/g' "$INSTALLER"
 
 echo "Pi-hole installer patched successfully."
 
