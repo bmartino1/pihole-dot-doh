@@ -12,7 +12,7 @@ WORKDIR /tmp/src
 # Create necessary directories
 RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib/unbound /usr/local/etc/unbound
 
-# Install build dependencies (Alpine names) and build Unbound from source
+# Install build dependencies and build Unbound from source
 RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openssl-dev protobuf-c-dev" && \
     apk update && apk add --no-cache $build_deps ca-certificates ldns libevent expat && \
     curl -sSL ${UNBOUND_DOWNLOAD_URL} -o unbound.tar.gz && \
@@ -40,7 +40,6 @@ RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openss
 # 2) Final Image: Alpine-based Pi-hole
 #############################
 FROM alpine:latest
-#LABEL maintainer="your-email@example.com"
 
 # Create directories for Pi-hole and Unbound
 RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib/unbound /usr/local/etc/unbound
@@ -54,7 +53,7 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositori
     echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
     apk update
 
-# Install runtime dependencies (Alpine)
+# Install required dependencies (Added: dialog, newt, procps, dhcpcd, openrc, ncurses)
 RUN apk upgrade && \
     apk add --no-cache \
       bash \
@@ -80,7 +79,13 @@ RUN apk upgrade && \
       perl \
       iputils \
       iperf3 \
-      bind-tools
+      bind-tools \
+      dialog \
+      newt \
+      procps \
+      dhcpcd \
+      openrc \
+      ncurses
 
 # Set default timezone (override via Docker env variable if needed)
 ENV TZ=UTC
@@ -93,12 +98,29 @@ COPY --from=unbound /usr/local/etc/unbound/* /usr/local/etc/unbound/
 # Create unbound user/group if not already existing
 RUN addgroup -S unbound || true && adduser -S -G unbound unbound || true
 
-# Download and execute Pi-hole installation script directly via curl
-# The official Pi-hole install script does not support Alpine.
-# This custom script ensures necessary dependencies are installed correctly.
+# Ensure OpenRC service dependencies are properly configured
+RUN touch /etc/runlevels/default/dev && \
+    touch /etc/runlevels/default/machine-id && \
+    rc-update add dev default || true && \
+    rc-update add machine-id default || true
+
+# Fix pihole instal script Set environment variables to assit script
+ENV TERM=xterm
+ENV PIHOLE_SKIP_OS_CHECK=true
+ENV PIHOLE_INSTALL_WEB_INTERFACE=true
+ENV PIHOLE_INSTALL_WEB_SERVER=true
+#Cloudflared
+ENV PIHOLE_DNS_1=127.1.1.1#5153
+#stubby - ?unbound...
+ENV PIHOLE_DNS_2=127.2.2.2#5253
+
+# Install missing dependencies first
+RUN apk add --no-cache procps
+
+# Download and execute Pi-hole installation script manually
 RUN curl -sSL "https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads" -o /temp/pihole-install.sh && \
     chmod +x /temp/pihole-install.sh && \
-    bash /temp/pihole-install.sh --unattended
+    PIHOLE_SKIP_OS_CHECK=true bash /temp/pihole-install.sh --unattended --disable-install-webserver
 
 # Copy additional install.sh to cont-init.d for runtime tasks (cloudflared/unbound config, etc.)
 RUN cp /temp/install.sh /etc/cont-init.d/10-install.sh && chmod +x /etc/cont-init.d/10-install.sh
