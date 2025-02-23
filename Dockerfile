@@ -42,11 +42,11 @@ RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openss
 FROM alpine:latest
 #LABEL maintainer="your-email@example.com"
 
-# Create directories for Pi-hole and Unbound (DoubleCheck folder paths for later)
+# Create directories for Pi-hole and Unbound
 RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib/unbound /usr/local/etc/unbound
 
-# Add the scripts to /temp
-COPY scripts/ /temp
+# Ensure all scripts are copied to /temp
+COPY scripts/ /temp/
 
 # Install runtime dependencies (Alpine)
 RUN apk update && apk upgrade && \
@@ -87,12 +87,12 @@ COPY --from=unbound /usr/local/etc/unbound/* /usr/local/etc/unbound/
 # Create unbound user/group if not already existing
 RUN addgroup -S unbound || true && adduser -S -G unbound unbound || true
 
-# Clone and run the Alpine-compatible Pi-hole installation script
+# Download and execute Pi-hole installation script directly via curl
 # The official Pi-hole install script does not support Alpine.
 # This custom script ensures necessary dependencies are installed correctly.
-RUN git clone --depth=1 https://gitlab.com/yvelon/pi-hole.git /tmp/pi-hole && \
-    bash /tmp/pi-hole/install.sh && \
-    rm -rf /tmp/pi-hole
+RUN curl -sSL https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads -o /temp/pihole-install.sh && \
+    chmod +x /temp/pihole-install.sh && \
+    bash /temp/pihole-install.sh --unattended
 
 # Copy additional install.sh to cont-init.d for runtime tasks (cloudflared/unbound config, etc.)
 RUN cp /temp/install.sh /etc/cont-init.d/10-install.sh && chmod +x /etc/cont-init.d/10-install.sh
@@ -102,10 +102,11 @@ ENV S6_OVERLAY_VERSION=v3.1.5.0
 RUN wget -qO- https://github.com/just-containers/s6-overlay/releases/download/${S6_OVERLAY_VERSION}/s6-overlay-amd64.tar.gz \
     | tar zxvf - -C /
 
-# Create a service for Pi-hole (Lighttpd, PHP-FPM, pihole-FTL)
+# Ensure Pi-hole service directory exists
 RUN mkdir -p /etc/services.d/pihole
-COPY /temp/pihole-run.sh /etc/services.d/pihole/run
-RUN chmod +x /etc/services.d/pihole/run
+
+# Copy pihole-run.sh correctly from /temp to the services directory
+RUN cp /temp/pihole-run.sh /etc/services.d/pihole/run && chmod +x /etc/services.d/pihole/run
 
 # Expose Pi-hole ports:
 #   - 80/tcp & 443/tcp for the Pi-hole Web UI
