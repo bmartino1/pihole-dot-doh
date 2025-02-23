@@ -10,12 +10,11 @@ ARG UNBOUND_DOWNLOAD_URL=https://nlnetlabs.nl/downloads/unbound/unbound-1.22.0.t
 WORKDIR /tmp/src
 
 # Create necessary directories for configuration and default files.
-# Custom Unbound/Cloudflared configs can later be mounted at /config,
-# while /temp holds the default configs (or pre-made scripts).
 RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib/unbound /usr/local/etc/unbound
 
-# Install build dependencies (Alpine names)
-RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openssl-dev" && \
+# Install build dependencies (Alpine names).
+# We add protobuf-c-dev to support dnstap compilation.
+RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openssl-dev protobuf-c-dev" && \
     apk update && apk add --no-cache $build_deps ca-certificates ldns libevent expat && \
     curl -sSL ${UNBOUND_DOWNLOAD_URL} -o unbound.tar.gz && \
     echo "${UNBOUND_SHA256}  unbound.tar.gz" | sha256sum -c - && \
@@ -34,7 +33,7 @@ RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openss
       --enable-tfo-client \
       --enable-event-api \
       --enable-subnet && \
-    make -j$(nproc) install && \
+    make -j"$(nproc)" install && \
     apk del $build_deps && \
     rm -rf /tmp/*
 
