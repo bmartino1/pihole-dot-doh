@@ -1,88 +1,79 @@
-#!/bin/bash
+#!/bin/sh
+set -eux
 
-# clean stubby config
-mkdir -p /etc/stubby \
-    && rm -f /etc/stubby/stubby.yml
+# Clean stubby config.
+mkdir -p /etc/stubby
+rm -f /etc/stubby/stubby.yml
 
-# Let Download and install Cloudflare depending on the architecture
-set -eux; 
-ARCH="$(dpkg --print-architecture | awk -F'-' '{print $NF}')"
+# Determine architecture using uname.
+ARCH=$(uname -m)
 case "$ARCH" in
     aarch64|arm64)
-        CF_PACKAGE="cloudflared-linux-arm64.deb"
+        CF_PACKAGE="cloudflared-linux-arm64.apk"
         ;;
     arm)
-        CF_PACKAGE="cloudflared-linux-arm.deb"
-        ;;
-    armhf)
-        CF_PACKAGE="cloudflared-linux-armhf.deb"
+        CF_PACKAGE="cloudflared-linux-arm.apk"
         ;;
     amd64|x86_64)
-        CF_PACKAGE="cloudflared-linux-amd64.deb"
+        CF_PACKAGE="cloudflared-linux-amd64.apk"
         ;;
     *)
         echo "Unsupported architecture: $ARCH"
-        exit 1;
+        exit 1
         ;;
-esac;
+esac
 
-# install cloudflared
-cd /tmp \
-&& wget https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PACKAGE} \
-&& apt install -y ./${CF_PACKAGE} \
-&& rm -f ./${CF_PACKAGE} \
-&& echo "$(date "+%d.%m.%Y %T") $(cloudflared -V) installed for ${ARCH}" >> /build_date.info
+# For Alpine, cloudflared is installed in the Dockerfile.
+echo "$(date "+%d.%m.%Y %T") cloudflared version: $(/usr/local/bin/cloudflared -V) installed for ${ARCH}" >> /build_date.info
 
+# Clean cloudflared config.
+mkdir -p /etc/cloudflared
+rm -f /etc/cloudflared/config.yml
 
-useradd -s /usr/sbin/nologin -r -M cloudflared \
-    && chown cloudflared:cloudflared /usr/local/bin/cloudflared
-    
-# clean cloudflared config
-mkdir -p /etc/cloudflared \
-    && rm -f /etc/cloudflared/config.yml
-    
-# add unbound version to build.info
-echo "$(date "+%d.%m.%Y %T") Unbound $(unbound -V | head -1) installed for ${ARCH}" >> /build_date.info    
+# Log unbound version.
+echo "$(date "+%d.%m.%Y %T") Unbound $(unbound -V | head -1) installed for ${ARCH}" >> /build_date.info
 
-# clean up
-apt -y autoremove \
-    && apt -y autoclean \
-    && apt -y clean \
-    && rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists/*
+# Clean up temporary files.
+rm -rf /tmp/* /var/tmp/*
 
-# Creating pihole-dot-doh service
+# Create the pihole-dot-doh service.
 mkdir -p /etc/services.d/pihole-dot-doh
 
-# run file
-echo '#!/usr/bin/env bash' | tee /etc/services.d/pihole-dot-doh/run
-# Copy config file if not exists
-echo 'cp -n /temp/stubby.yml /config/' | tee -a /etc/services.d/pihole-dot-doh/run
-echo 'cp -n /temp/cloudflared.yml /config/' | tee -a /etc/services.d/pihole-dot-doh/run
-echo 'cp -n /temp/unbound.conf /config/' | tee -a /etc/services.d/pihole-dot-doh/run
-echo 'cp -n /temp/forward-records.conf /config/' | tee -a /etc/services.d/pihole-dot-doh/run
-# run unbound in background
-echo 's6-echo "Starting unbound"' | tee -a /etc/services.d/pihole-dot-doh/run
-echo '/usr/local/sbin/unbound -p -c /config/unbound.conf' | tee -a /etc/services.d/pihole-dot-doh/run
-# run stubby in background
-echo 's6-echo "Starting stubby"' | tee -a /etc/services.d/pihole-dot-doh/run
-echo 'stubby -g -C /config/stubby.yml' | tee -a /etc/services.d/pihole-dot-doh/run
-# run cloudflared in foreground
-echo 's6-echo "Starting cloudflared"' | tee -a /etc/services.d/pihole-dot-doh/run
-echo '/usr/local/bin/cloudflared --config /config/cloudflared.yml' | tee -a /etc/services.d/pihole-dot-doh/run
+# Create run script for the service.
+cat << 'EOF' > /etc/services.d/pihole-dot-doh/run
+#!/bin/sh
+# Copy default configs from /temp to /config if not already present.
+cp -n /temp/stubby.yml /config/
+cp -n /temp/cloudflared.yml /config/
+cp -n /temp/unbound.conf /config/
+cp -n /temp/forward-records.conf /config/
+# Start unbound in the background.
+echo "Starting unbound"
+exec /usr/local/sbin/unbound -p -c /config/unbound.conf &
+# Start stubby in the background.
+echo "Starting stubby"
+exec stubby -g -C /config/stubby.yml &
+# Start cloudflared in the foreground.
+echo "Starting cloudflared"
+exec /usr/local/bin/cloudflared --config /config/cloudflared.yml
+EOF
+
 chmod 755 /etc/services.d/pihole-dot-doh/run
 
-# finish file
-echo '#!/usr/bin/env bash' | tee /etc/services.d/pihole-dot-doh/finish
-echo 's6-echo "Stopping stubby"' | tee -a /etc/services.d/pihole-dot-doh/finish
-echo 'killall -9 stubby' | tee -a /etc/services.d/pihole-dot-doh/finish
-echo 's6-echo "Stopping cloudflared"' | tee -a /etc/services.d/pihole-dot-doh/finish
-echo 'killall -9 cloudflared' | tee -a /etc/services.d/pihole-dot-doh/finish
-echo 's6-echo "Stopping unbound"' | tee -a /etc/services.d/pihole-dot-doh/finish
-echo 'killall -9 unbound' | tee -a /etc/services.d/pihole-dot-doh/finish
+# Create finish script for the service.
+cat << 'EOF' > /etc/services.d/pihole-dot-doh/finish
+#!/bin/sh
+echo "Stopping stubby"
+killall -9 stubby
+echo "Stopping cloudflared"
+killall -9 cloudflared
+echo "Stopping unbound"
+killall -9 unbound
+EOF
+
 chmod 755 /etc/services.d/pihole-dot-doh/finish
 
-# creating oneshot for unbound
+# Create a oneshot for unbound configuration.
 mkdir -p /etc/cont-init.d/
-# run file
 cp -n /temp/unbound.sh /etc/cont-init.d/unbound
 chmod 755 /etc/cont-init.d/unbound
