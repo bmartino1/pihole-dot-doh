@@ -5,7 +5,6 @@ set -eux
 INSTALLER_URL="https://raw.githubusercontent.com/pi-hole/pi-hole/master/automated%20install/basic-install.sh"
 INSTALLER="/temp/basic-install.sh"
 
-# Download the official Pi-hole installer script to /temp
 echo "Downloading Pi-hole installer from ${INSTALLER_URL}..."
 curl -sSL "$INSTALLER_URL" -o "$INSTALLER"
 
@@ -14,8 +13,8 @@ curl -sSL "$INSTALLER_URL" -o "$INSTALLER"
 sed -i '/command -v systemctl/d' "$INSTALLER"
 # Remove lines mentioning SELinux not detected.
 sed -i '/SELinux not detected/d' "$INSTALLER"
-# Remove any exit commands that would abort the install.
-sed -i '/exit 1/d' "$INSTALLER"
+# Instead of deleting exit commands, comment them out to preserve block structure.
+sed -i 's/^exit 1$/#exit 1/g' "$INSTALLER"
 
 echo "Pi-hole installer patched successfully."
 
