@@ -42,12 +42,11 @@ RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openss
 FROM alpine:latest
 #LABEL maintainer="your-email@example.com"
 
-# Create directories for Pi-hole and Unbound (DoubleCheck fodler paths for latter)
+# Create directories for Pi-hole and Unbound (DoubleCheck folder paths for later)
 RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib/unbound /usr/local/etc/unbound
 
-#add the scripts to /temp
+# Add the scripts to /temp
 COPY scripts/ /temp
-#ADD scripts /temp
 
 # Install runtime dependencies (Alpine)
 RUN apk update && apk upgrade && \
@@ -105,7 +104,7 @@ RUN wget -qO- https://github.com/just-containers/s6-overlay/releases/download/${
 
 # Create a service for Pi-hole (Lighttpd, PHP-FPM, pihole-FTL)
 RUN mkdir -p /etc/services.d/pihole
-COPY temp/pihole-run.sh /etc/services.d/pihole/run
+COPY /temp/pihole-run.sh /etc/services.d/pihole/run
 RUN chmod +x /etc/services.d/pihole/run
 
 # Expose Pi-hole ports:
