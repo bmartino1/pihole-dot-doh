@@ -1,11 +1,11 @@
 #############################
 # 1) Unbound Builder Stage (Alpine)
 #############################
-FROM alpine:latest as unbound
+FROM alpine:latest AS unbound
 
 ARG UNBOUND_VERSION=1.22.0
 ARG UNBOUND_SHA256=c5dd1bdef5d5685b2cedb749158dd152c52d44f65529a34ac15cd88d4b1b3d43
-ARG UNBOUND_DOWNLOAD_URL=https://nlnetlabs.nl/downloads/unbound/unbound-1.22.0.tar.gz
+ARG UNBOUND_DOWNLOAD_URL=https://nlnetlabs.nl/downloads/unbound/unbound-${UNBOUND_VERSION}.tar.gz
 
 WORKDIR /tmp/src
 
@@ -81,15 +81,15 @@ COPY --from=unbound /usr/local/sbin/unbound* /usr/local/sbin/
 COPY --from=unbound /usr/local/lib/libunbound* /usr/local/lib/
 COPY --from=unbound /usr/local/etc/unbound/* /usr/local/etc/unbound/
 
-# Copy your scripts (including alpine_install_pihole.sh) into /temp
-COPY scripts/ /temp
-
 # Create unbound user/group if not already existing
 RUN addgroup -S unbound || true && adduser -S -G unbound unbound || true
 
-# Run our custom Alpine Pi-hole installer script
-RUN chmod +x /temp/alpine_install_pihole.sh && \
-    /temp/alpine_install_pihole.sh
+# Clone and run the Alpine-compatible Pi-hole installation script
+# The official Pi-hole install script does not support Alpine.
+# This custom script ensures necessary dependencies are installed correctly.
+RUN git clone --depth=1 https://gitlab.com/yvelon/pi-hole.git /tmp/pi-hole && \
+    bash /tmp/pi-hole/install.sh && \
+    rm -rf /tmp/pi-hole
 
 # Copy additional install.sh to cont-init.d for runtime tasks (cloudflared/unbound config, etc.)
 RUN cp /temp/install.sh /etc/cont-init.d/10-install.sh && chmod +x /etc/cont-init.d/10-install.sh
@@ -101,13 +101,14 @@ RUN wget -qO- https://github.com/just-containers/s6-overlay/releases/download/${
 
 # Create a service for Pi-hole (Lighttpd, PHP-FPM, pihole-FTL)
 RUN mkdir -p /etc/services.d/pihole
-RUN cp /temp/pihole-run.sh /etc/services.d/pihole/run && chmod +x /etc/services.d/pihole/run
+COPY pihole-run.sh /etc/services.d/pihole/run
+RUN chmod +x /etc/services.d/pihole/run
 
 # Expose Pi-hole ports:
 #   - 80/tcp & 443/tcp for the Pi-hole Web UI
 #   - 53/tcp & 53/udp for DNS queries
-#   - 65 for Pi-hole DHCP
-EXPOSE 65 80 443 53/tcp 53/udp
+#   - 67/udp for Pi-hole DHCP service
+EXPOSE 80 443 53/tcp 53/udp 67/udp
 
 # Make /config a volume for runtime config overrides
 VOLUME ["/config"]
