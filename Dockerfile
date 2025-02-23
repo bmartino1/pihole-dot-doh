@@ -54,23 +54,26 @@ RUN apk update && apk upgrade && \
       curl \
       wget \
       git \
-      php8 \
-      php8-fpm \
-      php8-curl \
-      php8-json \
-      php8-openssl \
-      php8-mbstring \
-      php8-gd \
-      php8-zip \
-      php8-phar \
-      php8-simplexml \
+      php83 \
+      php83-fpm \
+      php83-curl \
+      php83-json \
+      php83-openssl \
+      php83-mbstring \
+      php83-gd \
+      php83-zip \
+      php83-phar \
+      php83-simplexml \
       lighttpd \
       tzdata \
       sudo \
       nano \
       stubby \
       openssl-dev \
-      perl
+      perl \
+      iputils \
+      iperf3 \
+      bind-tools
 
 # Set default timezone (can be overridden via Docker variable)
 ENV TZ=UTC
