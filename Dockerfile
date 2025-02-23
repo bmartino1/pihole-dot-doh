@@ -105,7 +105,7 @@ RUN wget -qO- https://github.com/just-containers/s6-overlay/releases/download/${
 
 # Create a service for Pi-hole (Lighttpd, PHP-FPM, pihole-FTL)
 RUN mkdir -p /etc/services.d/pihole
-COPY cp /temp/pihole-run.sh /etc/services.d/pihole/run
+COPY temp/pihole-run.sh /etc/services.d/pihole/run
 RUN chmod +x /etc/services.d/pihole/run
 
 # Expose Pi-hole ports:
