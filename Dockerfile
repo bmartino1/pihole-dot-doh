@@ -48,8 +48,14 @@ RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib
 # Ensure all scripts are copied to /temp
 COPY scripts/ /temp/
 
+# Enable Alpine Edge Repository for required dependencies
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
+    echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
+    apk update
+
 # Install runtime dependencies (Alpine)
-RUN apk update && apk upgrade && \
+RUN apk upgrade && \
     apk add --no-cache \
       bash \
       curl \
@@ -90,7 +96,7 @@ RUN addgroup -S unbound || true && adduser -S -G unbound unbound || true
 # Download and execute Pi-hole installation script directly via curl
 # The official Pi-hole install script does not support Alpine.
 # This custom script ensures necessary dependencies are installed correctly.
-RUN curl -sSL https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads -o /temp/pihole-install.sh && \
+RUN curl -sSL "https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads" -o /temp/pihole-install.sh && \
     chmod +x /temp/pihole-install.sh && \
     bash /temp/pihole-install.sh --unattended
 
