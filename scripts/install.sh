@@ -1,17 +1,13 @@
 #!/bin/sh
 set -eux
 
-# Clean stubby config.
-mkdir -p /etc/stubby
-rm -f /etc/stubby/stubby.yml
-
-# Determine architecture using uname.
+# 1) Architecture detection for Cloudflared
 ARCH=$(uname -m)
 case "$ARCH" in
     aarch64|arm64)
         CF_PACKAGE="cloudflared-linux-arm64.apk"
         ;;
-    arm)
+    arm*)
         CF_PACKAGE="cloudflared-linux-arm.apk"
         ;;
     amd64|x86_64)
@@ -23,57 +19,64 @@ case "$ARCH" in
         ;;
 esac
 
-# For Alpine, cloudflared is installed in the Dockerfile.
-echo "$(date "+%d.%m.%Y %T") cloudflared version: $(/usr/local/bin/cloudflared -V) installed for ${ARCH}" >> /build_date.info
+# 2) Cloudflared installation at runtime
+echo "Installing Cloudflared for $ARCH..."
+wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PACKAGE} -O /tmp/cloudflared.apk
+apk add --allow-untrusted /tmp/cloudflared.apk || true
+rm -f /tmp/cloudflared.apk
 
-# Clean cloudflared config.
+# Log Cloudflared version
+echo "$(date '+%d.%m.%Y %T') Cloudflared: $(cloudflared -v) for ${ARCH}" >> /build_date.info
+
+# 3) Clean up any old configs
+mkdir -p /etc/stubby
+rm -f /etc/stubby/stubby.yml
 mkdir -p /etc/cloudflared
 rm -f /etc/cloudflared/config.yml
 
-# Log unbound version.
-echo "$(date "+%d.%m.%Y %T") Unbound $(unbound -V | head -1) installed for ${ARCH}" >> /build_date.info
+# 4) Log Unbound version
+echo "$(date '+%d.%m.%Y %T') Unbound $(unbound -V | head -1) installed for ${ARCH}" >> /build_date.info
 
-# Clean up temporary files.
-rm -rf /tmp/* /var/tmp/*
-
-# Create the pihole-dot-doh service.
+# 5) Create the pihole-dot-doh service for Unbound, Stubby, Cloudflared
 mkdir -p /etc/services.d/pihole-dot-doh
-
-# Create run script for the service.
 cat << 'EOF' > /etc/services.d/pihole-dot-doh/run
 #!/bin/sh
-# Copy default configs from /temp to /config if not already present.
+
+# Copy default configs if they don't exist in /config
 cp -n /temp/stubby.yml /config/
 cp -n /temp/cloudflared.yml /config/
 cp -n /temp/unbound.conf /config/
 cp -n /temp/forward-records.conf /config/
-# Start unbound in the background.
-echo "Starting unbound"
-exec /usr/local/sbin/unbound -p -c /config/unbound.conf &
-# Start stubby in the background.
-echo "Starting stubby"
-exec stubby -g -C /config/stubby.yml &
-# Start cloudflared in the foreground.
-echo "Starting cloudflared"
-exec /usr/local/bin/cloudflared --config /config/cloudflared.yml
-EOF
 
+echo "Starting unbound..."
+/usr/local/sbin/unbound -p -c /config/unbound.conf &
+
+echo "Starting stubby..."
+stubby -g -C /config/stubby.yml &
+
+echo "Starting cloudflared..."
+exec cloudflared --config /config/cloudflared.yml
+EOF
 chmod 755 /etc/services.d/pihole-dot-doh/run
 
-# Create finish script for the service.
+# 6) Create a finish script for pihole-dot-doh
 cat << 'EOF' > /etc/services.d/pihole-dot-doh/finish
 #!/bin/sh
-echo "Stopping stubby"
-killall -9 stubby
-echo "Stopping cloudflared"
-killall -9 cloudflared
-echo "Stopping unbound"
-killall -9 unbound
+echo "Stopping stubby..."
+killall -9 stubby || true
+echo "Stopping cloudflared..."
+killall -9 cloudflared || true
+echo "Stopping unbound..."
+killall -9 unbound || true
 EOF
-
 chmod 755 /etc/services.d/pihole-dot-doh/finish
 
-# Create a oneshot for unbound configuration.
-mkdir -p /etc/cont-init.d/
-cp -n /temp/unbound.sh /etc/cont-init.d/unbound
-chmod 755 /etc/cont-init.d/unbound
+# 7) If you have an unbound.sh for memory calculations, root hints, etc.,
+#    copy it to /etc/cont-init.d to run at startup.
+if [ -f /temp/unbound.sh ]; then
+  cp -n /temp/unbound.sh /etc/cont-init.d/unbound
+  chmod 755 /etc/cont-init.d/unbound
+fi
+
+# 8) Cleanup
+rm -rf /tmp/* /var/tmp/*
