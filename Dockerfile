@@ -15,7 +15,7 @@ WORKDIR /tmp/src
 RUN mkdir -p /config /temp /etc/cloudflared /etc/unbound/unbound.conf.d /var/lib/unbound /usr/local/etc/unbound
 
 # Install build dependencies (Alpine names)
-RUN build_deps="curl gcc musl-dev libevent-dev expat-dev libnghttp2-dev make openssl-dev" && \
+RUN build_deps="curl gcc musl-dev libevent-dev expat-dev nghttp2-dev make openssl-dev" && \
     apk update && apk add --no-cache $build_deps ca-certificates ldns libevent expat && \
     curl -sSL ${UNBOUND_DOWNLOAD_URL} -o unbound.tar.gz && \
     echo "${UNBOUND_SHA256}  unbound.tar.gz" | sha256sum -c - && \
