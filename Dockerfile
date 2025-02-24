@@ -104,34 +104,33 @@ RUN touch /etc/runlevels/default/dev && \
     rc-update add dev default || true && \
     rc-update add machine-id default || true
 
-# Fix pihole install script - Set environment variables for unattended mode
-ENV TERM=xterm
-ENV PIHOLE_SKIP_OS_CHECK=true
-ENV PIHOLE_INTERFACE=eth0
-ENV IPV4_ADDRESS="0.0.0.0"
-ENV INSTALL_WEB_INTERFACE=true
-ENV INSTALL_WEB_SERVER=true
-ENV PIHOLE_DNS_1=127.1.1.1#5153
-ENV PIHOLE_DNS_2=127.2.2.2#5253
-ENV QUERY_LOGGING=true
-ENV PRIVACY_LEVEL=0
-ENV CACHE_SIZE=10000
-ENV INSTALL_UNBOUND=false
-ENV WEBPASSWORD="piholeAdmin"
-
 # Download and execute Pi-hole install script
 RUN curl -sSL "https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads" -o /temp/pihole-install.sh && \
     chmod +x /temp/pihole-install.sh && \
-    # Pass required answers via echo to make installation fully automated
-    export PIHOLE_SKIP_OS_CHECK=true && \
-    echo -e "eth0\n" \
-          "127.1.1.1#5153\n" \
-          "127.2.2.2#5253\n" \
-          "true\n" \
-          "0\n" \
-          "10000\n" \
-          "false\n" \
-          "piholeAdmin\n" | bash /temp/pihole-install.sh --unattended --disable-install-webserver
+
+    # Inject required environment variables at the beginning of the script
+    echo '#!/bin/bash' > /temp/pihole-install-temp.sh && \
+    echo 'export PIHOLE_SKIP_OS_CHECK=true' >> /temp/pihole-install-temp.sh && \
+    echo 'export runUnattended=true' >> /temp/pihole-install-temp.sh && \
+    echo 'export useUpdateVars=true' >> /temp/pihole-install-temp.sh && \
+    echo 'export PIHOLE_INTERFACE="eth0"' >> /temp/pihole-install-temp.sh && \
+    echo 'export IPV4_ADDRESS="0.0.0.0"' >> /temp/pihole-install-temp.sh && \
+    echo 'export INSTALL_WEB_INTERFACE=true' >> /temp/pihole-install-temp.sh && \
+    echo 'export INSTALL_WEB_SERVER=true' >> /temp/pihole-install-temp.sh && \
+    echo 'export PIHOLE_DNS_1="127.1.1.1#5153"' >> /temp/pihole-install-temp.sh && \
+    echo 'export PIHOLE_DNS_2="127.2.2.2#5253"' >> /temp/pihole-install-temp.sh && \
+    echo 'export QUERY_LOGGING=true' >> /temp/pihole-install-temp.sh && \
+    echo 'export PRIVACY_LEVEL=0' >> /temp/pihole-install-temp.sh && \
+    echo 'export CACHE_SIZE=10000' >> /temp/pihole-install-temp.sh && \
+    echo 'export INSTALL_UNBOUND=false' >> /temp/pihole-install-temp.sh && \
+    echo 'export WEBPASSWORD="piholeAdmin"' >> /temp/pihole-install-temp.sh && \
+
+    # Append the original script to modified script
+    cat /temp/pihole-install.sh >> /temp/pihole-install-temp.sh && \
+    mv /temp/pihole-install-temp.sh /temp/pihole-install.sh && \
+
+    # Run the modified installer script
+    sh /temp/pihole-install.sh --unattended --disable-install-webserver
 
 # Copy additional install.sh to cont-init.d for runtime tasks (cloudflared/unbound config, etc.)
 RUN cp /temp/install.sh /etc/cont-init.d/10-install.sh && chmod +x /etc/cont-init.d/10-install.sh
@@ -148,9 +147,6 @@ RUN mkdir -p /etc/services.d/pihole
 RUN cp /temp/pihole-run.sh /etc/services.d/pihole/run && chmod +x /etc/services.d/pihole/run
 
 # Expose Pi-hole ports:
-#   - 80/tcp & 443/tcp for the Pi-hole Web UI
-#   - 53/tcp & 53/udp for DNS queries
-#   - 67/udp for Pi-hole DHCP service
 EXPOSE 80 443 53/tcp 53/udp 67/udp
 
 # Make /config a volume for runtime config overrides
