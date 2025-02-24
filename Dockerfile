@@ -119,36 +119,19 @@ ENV CACHE_SIZE=10000
 ENV INSTALL_UNBOUND=false
 ENV WEBPASSWORD="piholeAdmin"
 
-# Download Pi-hole install script
+# Download and execute Pi-hole install script
 RUN curl -sSL "https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads" -o /temp/pihole-install.sh && \
     chmod +x /temp/pihole-install.sh && \
-
-    # Modify install script to ensure environment variables are set
-    sed -i '1i\
-# Ensure environment variables are set\n\
-PIHOLE_INTERFACE="eth0"\n\
-IPV4_ADDRESS="0.0.0.0"\n\
-INSTALL_WEB_INTERFACE=true\n\
-INSTALL_WEB_SERVER=true\n\
-PIHOLE_DNS_1="127.1.1.1#5153"\n\
-PIHOLE_DNS_2="127.2.2.2#5253"\n\
-QUERY_LOGGING=true\n\
-PRIVACY_LEVEL=0\n\
-CACHE_SIZE=10000\n\
-INSTALL_UNBOUND=false\n\
-WEBPASSWORD="piholeAdmin"\n\
-' /temp/pihole-install.sh && \
-
-    # Force the script into unattended mode
-    sed -i 's/^runUnattended=.*/runUnattended=true/' /temp/pihole-install.sh && \
-    sed -i 's/^useUpdateVars=.*/useUpdateVars=true/' /temp/pihole-install.sh && \
-
-    # Force DHCP by modifying the section that prompts for static IP
-    sed -i 's/chooseInterface/#chooseInterface/' /temp/pihole-install.sh && \
-    sed -i 's/setStaticIPv4/#setStaticIPv4/' /temp/pihole-install.sh && \
-
-    # Run the modified installer script
-    PIHOLE_SKIP_OS_CHECK=true bash /temp/pihole-install.sh --unattended --disable-install-webserver
+    # Pass required answers via echo to make installation fully automated
+    export PIHOLE_SKIP_OS_CHECK=true && \
+    echo -e "eth0\n" \
+          "127.1.1.1#5153\n" \
+          "127.2.2.2#5253\n" \
+          "true\n" \
+          "0\n" \
+          "10000\n" \
+          "false\n" \
+          "piholeAdmin\n" | bash /temp/pihole-install.sh --unattended --disable-install-webserver
 
 # Copy additional install.sh to cont-init.d for runtime tasks (cloudflared/unbound config, etc.)
 RUN cp /temp/install.sh /etc/cont-init.d/10-install.sh && chmod +x /etc/cont-init.d/10-install.sh
