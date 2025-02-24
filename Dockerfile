@@ -53,7 +53,7 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositori
     echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
     apk update
 
-# Install required dependencies (Added: dialog, newt, procps, dhcpcd, openrc, ncurses)
+# Install required dependencies
 RUN apk upgrade && \
     apk add --no-cache \
       bash \
@@ -87,7 +87,7 @@ RUN apk upgrade && \
       openrc \
       ncurses
 
-# Set default timezone (override via Docker env variable if needed)
+# Set default timezone
 ENV TZ=UTC
 
 # Copy Unbound binaries and configs from the builder stage
@@ -95,7 +95,7 @@ COPY --from=unbound /usr/local/sbin/unbound* /usr/local/sbin/
 COPY --from=unbound /usr/local/lib/libunbound* /usr/local/lib/
 COPY --from=unbound /usr/local/etc/unbound/* /usr/local/etc/unbound/
 
-# Create unbound user/group if not already existing
+# Create unbound user/group
 RUN addgroup -S unbound || true && adduser -S -G unbound unbound || true
 
 # Ensure OpenRC service dependencies are properly configured
@@ -104,22 +104,50 @@ RUN touch /etc/runlevels/default/dev && \
     rc-update add dev default || true && \
     rc-update add machine-id default || true
 
-# Fix pihole instal script Set environment variables to assit script
+# Fix pihole install script - Set environment variables for unattended mode
 ENV TERM=xterm
 ENV PIHOLE_SKIP_OS_CHECK=true
-ENV PIHOLE_INSTALL_WEB_INTERFACE=true
-ENV PIHOLE_INSTALL_WEB_SERVER=true
-#Cloudflared
+ENV PIHOLE_INTERFACE=eth0
+ENV IPV4_ADDRESS="0.0.0.0"
+ENV INSTALL_WEB_INTERFACE=true
+ENV INSTALL_WEB_SERVER=true
 ENV PIHOLE_DNS_1=127.1.1.1#5153
-#stubby - ?unbound...
 ENV PIHOLE_DNS_2=127.2.2.2#5253
+ENV QUERY_LOGGING=true
+ENV PRIVACY_LEVEL=0
+ENV CACHE_SIZE=10000
+ENV INSTALL_UNBOUND=false
+ENV WEBPASSWORD="piholeAdmin"
 
-# Install missing dependencies first
-RUN apk add --no-cache procps
-
-# Download and execute Pi-hole installation script manually
+# Download Pi-hole install script
 RUN curl -sSL "https://gitlab.com/yvelon/pi-hole/-/raw/master/automated%20install/basic-install.sh?ref_type=heads" -o /temp/pihole-install.sh && \
     chmod +x /temp/pihole-install.sh && \
+
+    # Modify install script to ensure environment variables are set
+    sed -i '1i\
+# Ensure environment variables are set\n\
+PIHOLE_INTERFACE="eth0"\n\
+IPV4_ADDRESS="0.0.0.0"\n\
+INSTALL_WEB_INTERFACE=true\n\
+INSTALL_WEB_SERVER=true\n\
+PIHOLE_DNS_1="127.1.1.1#5153"\n\
+PIHOLE_DNS_2="127.2.2.2#5253"\n\
+QUERY_LOGGING=true\n\
+PRIVACY_LEVEL=0\n\
+CACHE_SIZE=10000\n\
+INSTALL_UNBOUND=false\n\
+WEBPASSWORD="piholeAdmin"\n\
+' /temp/pihole-install.sh && \
+
+    # Force the script into unattended mode
+    sed -i 's/^runUnattended=.*/runUnattended=true/' /temp/pihole-install.sh && \
+    sed -i 's/^useUpdateVars=.*/useUpdateVars=true/' /temp/pihole-install.sh && \
+
+    # Force DHCP by modifying the section that prompts for static IP
+    sed -i 's/chooseInterface/#chooseInterface/' /temp/pihole-install.sh && \
+    sed -i 's/setStaticIPv4/#setStaticIPv4/' /temp/pihole-install.sh && \
+
+    # Run the modified installer script
     PIHOLE_SKIP_OS_CHECK=true bash /temp/pihole-install.sh --unattended --disable-install-webserver
 
 # Copy additional install.sh to cont-init.d for runtime tasks (cloudflared/unbound config, etc.)
